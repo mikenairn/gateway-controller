@@ -1,0 +1,61 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - aigateway.praxis.io
+  resources:
+  - aigateways
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aigateway.praxis.io
+  resources:
+  - aigateways/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aigateway.praxis.io
+  resources:
+  - aigateways/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - praxis.io
+  resources:
+  - policies
+  - proxies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - praxis.io
+  resources:
+  - policies/finalizers
+  - proxies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - praxis.io
+  resources:
+  - policies/status
+  - proxies/status
+  verbs:
+  - get
+  - patch
+  - update
