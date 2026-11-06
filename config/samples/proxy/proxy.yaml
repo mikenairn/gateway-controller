@@ -1,0 +1,103 @@
+apiVersion: praxis.io/v1alpha1
+kind: Proxy
+metadata:
+  name: ai-gateway
+  namespace: praxis-system
+spec:
+  image: ghcr.io/praxis-proxy/praxis:1.5.0
+  replicas: 3
+  service:
+    type: LoadBalancer
+  secretEnv:
+    - name: OPENAI_API_KEY
+      secretRef:
+        name: llm-credentials
+        key: openai-key
+    - name: ANTHROPIC_API_KEY
+      secretRef:
+        name: llm-credentials
+        key: anthropic-key
+  admin:
+    address: "127.0.0.1:19901"
+  insecureOptions:
+    allowPrivateEndpoints: true
+    allowUnboundedBody: false
+  filterChains:
+    - name: ingress
+      conditions:
+        - when:
+            pathPrefix: "/api"
+            methods: ["POST", "PUT", "DELETE"]
+            headers:
+              x-tenant: "acme"
+            headersPresent: ["authorization"]
+            grpc: false
+      filters:
+        - name: request-id
+          inlineFilter:
+            type: request_id
+          failureMode: open
+        - name: access-log
+          inlineFilter:
+            type: access_log
+          failureMode: open
+    - name: ai-policy
+      conditions:
+        - when:
+            boundUpstream:
+              applicationProtocol: openai_chat_completions
+              applicationProvider: openai
+      filters:
+        - name: inference-policy
+          ref:
+            group: praxis.io
+            version: v1alpha1
+            kind: Policy
+            namespace: praxis-system
+            name: llm-guardrails
+          conditions:
+            - when:
+                pathPrefix: "/v1/chat"
+                methods: ["POST"]
+                selectedUpstream:
+                  applicationProtocol: openai_chat_completions
+                  applicationProvider: openai
+            - unless:
+                path: "/v1/chat/healthz"
+                headersPresent: ["x-bypass-policy"]
+                boundUpstream:
+                  applicationProvider: internal
+          responseConditions:
+            - when:
+                status: [200, 201]
+                headers:
+                  content-type: "application/json"
+                headersPresent: ["x-request-id"]
+            - unless:
+                status: [401, 403]
+                headers:
+                  x-skip-filter: "true"
+                headersPresent: ["x-already-processed"]
+          failureMode: closed
+        - name: rate-limiter
+          inlineFilter:
+            type: rate_limiter
+            config:
+              requests_per_second: 100
+              burst: 200
+          failureMode: open
+  listeners:
+    - name: https
+      port: 8443
+      bindAddress: "0.0.0.0"
+      tls:
+        certificateRef:
+          name: gateway-tls
+      filterChains:
+        - ingress
+        - ai-policy
+    - name: http-health
+      port: 8080
+      bindAddress: "0.0.0.0"
+      filterChains:
+        - ingress
