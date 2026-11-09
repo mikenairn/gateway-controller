@@ -205,7 +205,7 @@ spec:
 ```
 
 The TLS certificate Secret `gateway-tls` and storage connection Secret
-`responses-state` must also be in `team-alpha`.
+`responses-state` must also be in the `team-alpha` namespace.
 
 ### Out of scope
 
