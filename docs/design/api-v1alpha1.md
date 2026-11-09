@@ -205,7 +205,7 @@ spec:
           secretRef:
             name: responses-state
   governance:
-    authentication:
+    authentication: #gateway access auth not gateway administration auth
       - type: OIDC
         issuerURL: https://sso.example.com
         audiences:
