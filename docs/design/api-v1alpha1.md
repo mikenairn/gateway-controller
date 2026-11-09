@@ -144,7 +144,7 @@ protocols, and governance directly on the resource in v1alpha1.
 | `protocols` | Inbound protocol configuration grouped by category: `llm` for LLM protocols and `mcp` for MCP traffic. |
 | `governance` | Inline governance configuration, including authentication identities. |
 
-Authentication for model requests is configured on the gateway. Custom protocol
+Authentication is configured primarily on the gateway. Custom protocol
 extension properties and templates are deferred.
 
 ### Protocol configuration
