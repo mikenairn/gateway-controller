@@ -72,9 +72,17 @@ status:
 
 ### Definition
 
-A Tenant represents a group of users, such as an organisation. It is the
-long-lived anchor for gateways and models, intended to outlive individual,
-potentially ephemeral gateway definitions.
+A Tenant represents the organisation or team that owns and administers one or
+more gateways. Its administrators configure those gateways and publish models
+through them. It is the long-lived anchor for gateways and models, intended to
+outlive individual, potentially ephemeral gateway definitions. A gateway cannot
+be shared by multiple Tenants.
+
+Users and clients accessing a Tenant's gateways may belong to many different
+organisations or companies. Their access is governed by the Tenant's configured
+authentication types and the gateway and Model authorization policies. Many
+external organisations can access resources exposed through the gateway as long
+as they meet the Tenant's access criteria.
 
 - `authorizedIdentities` lists allowed authentication identities by `type`:
   `OIDC` or `APIKey`.
