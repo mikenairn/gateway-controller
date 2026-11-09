@@ -75,6 +75,11 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # Tests stay explicit: a repeated literal reads better inline than
+      # hoisted to a constant the reader has to go and look up.
+      - linters:
+          - goconst
+        path: _test\.go
     paths:
       - third_party$
       - builtin$

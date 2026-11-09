@@ -5,14 +5,19 @@ IMG ?= gateway-controller:latest
 KIND_CLUSTER_NAME ?= gateway-controller-dev
 KIND_IMG ?= gateway-controller:dev
 
-# Container engine, docker by default as kubebuilder does, which keeps the
-# docker-* target names honest. Override with CONTAINER_ENGINE=podman.
-# CONTAINER_TOOL is the kubebuilder name and is honoured too.
-CONTAINER_ENGINE ?= docker
-CONTAINER_TOOL ?= $(CONTAINER_ENGINE)
+KUBECTL ?= kubectl
+
+CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
 .PHONY: all
 all: build
+
+.PHONY: require-container-engine
+require-container-engine:
+	@if [ -z "$(CONTAINER_ENGINE)" ]; then \
+		echo "ERROR: No container engine found. Install podman or docker"; \
+		exit 1; \
+	fi
 
 ##@ General
 
@@ -95,12 +100,20 @@ tidy: ## Tidy go.mod and go.sum.
 # Unit tests are hermetic: no cluster, no envtest binaries, no network.
 .PHONY: test
 test: ## Run unit tests.
-	go test $(GO_TEST_FLAGS) ./api/... ./cmd/... ./internal/...
+	go test -v $(GO_TEST_FLAGS) ./api/... ./cmd/... ./internal/...
 
 .PHONY: test-integration
 test-integration: manifests generate setup-envtest ## Run integration tests against envtest.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
-		go test $(GO_TEST_FLAGS) ./test/integration/...
+	@K8S_VERSION="$(ENVTEST_K8S_VERSION)"; \
+	if [ -z "$$K8S_VERSION" ]; then echo "ERROR: Failed to detect Kubernetes version"; exit 1; fi; \
+	KUBEBUILDER_ASSETS="$$("$(ENVTEST)" use "$$K8S_VERSION" --bin-dir "$(LOCALBIN)" -p path)" || { \
+		echo "ERROR: Failed to locate envtest assets for Kubernetes $$K8S_VERSION"; exit 1; \
+	}; \
+	if [ -z "$$KUBEBUILDER_ASSETS" ]; then \
+		echo "ERROR: envtest reported no asset path for Kubernetes $$K8S_VERSION"; exit 1; \
+	fi; \
+	export KUBEBUILDER_ASSETS; \
+	go test $(GO_TEST_FLAGS) -v ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests against a kind cluster (see kind-up).
@@ -108,20 +121,29 @@ test-e2e: ## Run e2e tests against a kind cluster (see kind-up).
 
 .PHONY: coverage
 coverage: setup-envtest ## Run unit and integration tests with coverage.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
-		go test -coverprofile=cover.out -covermode=atomic -coverpkg=./api/...,./internal/... \
-		./api/... ./cmd/... ./internal/... ./test/integration/...
+	@K8S_VERSION="$(ENVTEST_K8S_VERSION)"; \
+	if [ -z "$$K8S_VERSION" ]; then echo "ERROR: Failed to detect Kubernetes version"; exit 1; fi; \
+	KUBEBUILDER_ASSETS="$$("$(ENVTEST)" use "$$K8S_VERSION" --bin-dir "$(LOCALBIN)" -p path)" || { \
+		echo "ERROR: Failed to locate envtest assets for Kubernetes $$K8S_VERSION"; exit 1; \
+	}; \
+	if [ -z "$$KUBEBUILDER_ASSETS" ]; then \
+		echo "ERROR: envtest reported no asset path for Kubernetes $$K8S_VERSION"; exit 1; \
+	fi; \
+	export KUBEBUILDER_ASSETS; \
+	go test -coverprofile=cover.out -covermode=atomic -coverpkg=./api/...,./internal/... \
+		./api/... ./cmd/... ./internal/... ./test/integration/... && \
 	go tool cover -func=cover.out | tail -1
 
 .PHONY: kind-up
-kind-up: ## Create a kind cluster with the manager built and deployed.
+kind-up: kind ## Create a kind cluster with the manager built and deployed.
 	$(MAKE) docker-build IMG=$(KIND_IMG)
-	IMG=$(KIND_IMG) CONTAINER_ENGINE=$(CONTAINER_ENGINE) \
+	IMG=$(KIND_IMG) CONTAINER_ENGINE=$(CONTAINER_ENGINE) KIND=$(KIND) \
 		KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash hack/setup-kind.sh
 
 .PHONY: kind-down
-kind-down: ## Delete the kind cluster.
-	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash hack/teardown-kind.sh
+kind-down: kind ## Delete the kind cluster.
+	IMG=$(KIND_IMG) CONTAINER_ENGINE=$(CONTAINER_ENGINE) KIND=$(KIND) \
+		KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash hack/teardown-kind.sh
 
 ##@ Build
 
@@ -134,36 +156,41 @@ run: manifests generate fmt vet ## Run the manager against the configured cluste
 	go run cmd/main.go
 
 .PHONY: docker-build
-docker-build: ## Build the manager image.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+docker-build: require-container-engine ## Build the manager image.
+	$(CONTAINER_ENGINE) build -t ${IMG} .
 
 .PHONY: docker-push
-docker-push: ## Push the manager image.
-	$(CONTAINER_TOOL) push ${IMG}
+docker-push: require-container-engine ## Push the manager image.
+	$(CONTAINER_ENGINE) push ${IMG}
 
 ##@ Deployment
 
 .PHONY: install
-install: manifests kustomize ## Install the CRDs into the current cluster.
-	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+install: manifests kustomize ## Install the CRDs into the target cluster.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Remove the CRDs from the current cluster.
-	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found -f -
+uninstall: manifests kustomize ## Remove the CRDs from the target cluster.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy the manager to the current cluster.
+deploy: manifests kustomize ## Deploy the manager to the target cluster.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default | kubectl apply -f -
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
-undeploy: kustomize ## Remove the manager from the current cluster.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found -f -
+undeploy: kustomize ## Remove the manager from the target cluster.
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found -f -
 
 ##@ Dependencies
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
+# go install rejects a relative GOBIN, and a relative symlink target would
+# resolve against the link's own directory, so normalise an override once here
+# rather than at each use. Prefixing CURDIR rather than calling abspath leaves
+# the value as a single word; abspath splits on whitespace.
+override LOCALBIN := $(if $(filter /%,$(LOCALBIN)),$(LOCALBIN),$(CURDIR)/$(LOCALBIN))
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
@@ -174,6 +201,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 ACTIONLINT ?= $(LOCALBIN)/actionlint
 SHELLCHECK ?= $(LOCALBIN)/shellcheck
+KIND ?= $(LOCALBIN)/kind
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.23.0
@@ -181,6 +209,7 @@ GOLANGCI_LINT_VERSION ?= v2.15.0
 KUSTOMIZE_VERSION ?= v5.8.1
 ACTIONLINT_VERSION ?= v1.7.12
 SHELLCHECK_VERSION ?= v0.11.0
+KIND_VERSION ?= v0.33.0
 # Resolved from go.mod so the envtest tooling cannot drift from the libraries
 # it must match.
 ENVTEST_VERSION ?= $(call gomodver,sigs.k8s.io/controller-runtime)
@@ -192,53 +221,80 @@ endef
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Install kustomize.
-$(KUSTOMIZE): $(LOCALBIN)
+$(KUSTOMIZE): | $(LOCALBIN)
+	@if test -x $@ && ! $@ version | grep -q $(KUSTOMIZE_VERSION); then \
+		rm -f $@*; \
+	fi
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
 
 # shellcheck ships per-OS/arch tarballs rather than as a Go module, so it
 # cannot use go-install-tool.
 .PHONY: shellcheck
 shellcheck: $(SHELLCHECK) ## Install shellcheck.
-$(SHELLCHECK): $(LOCALBIN)
-	@[ -f "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" ] || { \
-		set -e ;\
-		os="$$(uname -s | tr '[:upper:]' '[:lower:]')" ;\
-		arch="$$(uname -m)"; [ "$$arch" = "arm64" ] && arch=aarch64 ;\
-		echo "Downloading shellcheck $(SHELLCHECK_VERSION) ($$os.$$arch)" ;\
-		curl -sSL "https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).$$os.$$arch.tar.xz" \
-			| tar xJ -C "$(LOCALBIN)" --strip-components=1 "shellcheck-$(SHELLCHECK_VERSION)/shellcheck" ;\
-		mv "$(LOCALBIN)/shellcheck" "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" ;\
-	}
-	@ln -sf "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" "$(SHELLCHECK)"
+$(SHELLCHECK): | $(LOCALBIN)
+	@if [ -f "$@-$(SHELLCHECK_VERSION)" ] && [ "$$(readlink -- $@ 2>/dev/null)" = "$@-$(SHELLCHECK_VERSION)" ]; then \
+		exit 0; \
+	fi; \
+	rm -f $@*; \
+	set -e ;\
+	os="$$(uname -s | tr '[:upper:]' '[:lower:]')" ;\
+	arch="$$(uname -m)"; [ "$$arch" = "arm64" ] && arch=aarch64 ;\
+	echo "Downloading shellcheck $(SHELLCHECK_VERSION) ($$os.$$arch)" ;\
+	curl -sSL "https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).$$os.$$arch.tar.xz" \
+		| tar xJ -C "$(LOCALBIN)" --strip-components=1 "shellcheck-$(SHELLCHECK_VERSION)/shellcheck" ;\
+	mv "$(LOCALBIN)/shellcheck" "$@-$(SHELLCHECK_VERSION)" ;\
+	ln -sf "$@-$(SHELLCHECK_VERSION)" "$@"
 
 .PHONY: actionlint
 actionlint: $(ACTIONLINT) ## Install actionlint.
-$(ACTIONLINT): $(LOCALBIN)
+$(ACTIONLINT): | $(LOCALBIN)
+	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(ACTIONLINT_VERSION); then \
+		rm -f $@*; \
+	fi
 	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
 
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Install controller-gen.
-$(CONTROLLER_GEN): $(LOCALBIN)
+$(CONTROLLER_GEN): | $(LOCALBIN)
+	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(CONTROLLER_TOOLS_VERSION); then \
+		rm -f $@*; \
+	fi
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Install golangci-lint.
-$(GOLANGCI_LINT): $(LOCALBIN)
+$(GOLANGCI_LINT): | $(LOCALBIN)
+	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(GOLANGCI_LINT_VERSION); then \
+		rm -f $@*; \
+	fi
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 .PHONY: setup-envtest
 setup-envtest: envtest ## Download the binaries required for ENVTEST.
-	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
-	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { \
-		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
+	@K8S_VERSION="$(ENVTEST_K8S_VERSION)"; \
+	if [ -z "$$K8S_VERSION" ]; then echo "ERROR: Failed to detect Kubernetes version"; exit 1; fi; \
+	echo "Setting up envtest binaries for Kubernetes version $$K8S_VERSION..."; \
+	"$(ENVTEST)" use $$K8S_VERSION --bin-dir "$(LOCALBIN)" -p path > /dev/null || { \
+		echo "Error: Failed to set up envtest binaries for version $$K8S_VERSION."; \
 		exit 1; \
 	}
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Install setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
+$(ENVTEST): | $(LOCALBIN)
+	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(ENVTEST_VERSION); then \
+		rm -f $@*; \
+	fi
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: kind
+kind: $(KIND) ## Install kind locally if necessary.
+$(KIND): | $(LOCALBIN)
+	@if test -x $@ && ! $@ version | grep -q $(KIND_VERSION); then \
+		rm -f $@*; \
+	fi
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 # go-install-tool installs $2@$3 as $1-$3 and links $1 to it, so that changing
 # a pinned version reinstalls rather than silently reusing the old binary.
