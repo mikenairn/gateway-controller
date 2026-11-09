@@ -87,7 +87,7 @@ shape.
 
 ### Namespace and isolation
 
-Tenant is namespaced, and a namespace belongs to at most one Tenant. In v1alpha1,
+Tenant is namespaced, and a namespace can only belong to a single Tenant. In v1alpha1,
 its membership and isolation boundary are its own namespace. Tenant resources
 and their Kubernetes references remain in that namespace, except for a
 ModelProvider's backend Service reference.
