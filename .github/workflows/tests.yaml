@@ -1,0 +1,139 @@
+name: Tests
+
+# ------------------------------------------------------------------------------
+# Workflow Settings
+# ------------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions: {}
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Lint (golangci-lint, plus its own configuration)
+  # ----------------------------------------------------------------------------
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify linter configuration
+        run: make lint-config
+
+      - name: Lint
+        run: make lint
+
+  # ----------------------------------------------------------------------------
+  # Meta lint (things Go tooling does not cover)
+  # ----------------------------------------------------------------------------
+
+  meta-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Lint workflows
+        run: make lint-extra
+
+  # ----------------------------------------------------------------------------
+  # Verify generated and derived output is committed
+  #
+  # Each check runs as its own step so a failure names the target that
+  # regenerates it, rather than reporting that something, somewhere, is stale.
+  # ----------------------------------------------------------------------------
+
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify CRD and RBAC manifests
+        run: make verify-manifests
+
+      - name: Verify generated deepcopy code
+        run: make verify-generate
+
+      - name: Verify go.mod and go.sum are tidy
+        run: make verify-tidy
+
+  # ----------------------------------------------------------------------------
+  # Unit tests (hermetic: no cluster, no envtest binaries)
+  # ----------------------------------------------------------------------------
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: make build
+
+      - name: Unit tests
+        run: make test
+
+  # ----------------------------------------------------------------------------
+  # Integration tests (envtest control plane)
+  # ----------------------------------------------------------------------------
+
+  test-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Integration tests
+        run: make test-integration

@@ -82,7 +82,8 @@ lint-config: golangci-lint ## Verify the golangci-lint configuration.
 	$(GOLANGCI_LINT) config verify
 
 .PHONY: lint-extra
-lint-extra: shellcheck ## Lint things Go tooling does not cover.
+lint-extra: actionlint shellcheck ## Lint things Go tooling does not cover.
+	$(ACTIONLINT)
 	$(SHELLCHECK) hack/*.sh
 
 .PHONY: tidy
@@ -171,12 +172,14 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
+ACTIONLINT ?= $(LOCALBIN)/actionlint
 SHELLCHECK ?= $(LOCALBIN)/shellcheck
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.23.0
 GOLANGCI_LINT_VERSION ?= v2.15.0
 KUSTOMIZE_VERSION ?= v5.8.1
+ACTIONLINT_VERSION ?= v1.7.12
 SHELLCHECK_VERSION ?= v0.11.0
 # Resolved from go.mod so the envtest tooling cannot drift from the libraries
 # it must match.
@@ -208,6 +211,10 @@ $(SHELLCHECK): $(LOCALBIN)
 	}
 	@ln -sf "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" "$(SHELLCHECK)"
 
+.PHONY: actionlint
+actionlint: $(ACTIONLINT) ## Install actionlint.
+$(ACTIONLINT): $(LOCALBIN)
+	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
 
 
 .PHONY: controller-gen
