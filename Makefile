@@ -1,5 +1,10 @@
 IMG ?= gateway-controller:latest
 
+# kind-up builds and loads this tag rather than IMG, so a local kind cluster
+# is never accidentally running an image meant for a registry.
+KIND_CLUSTER_NAME ?= gateway-controller-dev
+KIND_IMG ?= gateway-controller:dev
+
 # Container engine, docker by default as kubebuilder does, which keeps the
 # docker-* target names honest. Override with CONTAINER_ENGINE=podman.
 # CONTAINER_TOOL is the kubebuilder name and is honoured too.
@@ -76,6 +81,10 @@ lint-fix: golangci-lint ## Run golangci-lint and apply fixes.
 lint-config: golangci-lint ## Verify the golangci-lint configuration.
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: lint-extra
+lint-extra: shellcheck ## Lint things Go tooling does not cover.
+	$(SHELLCHECK) hack/*.sh
+
 .PHONY: tidy
 tidy: ## Tidy go.mod and go.sum.
 	go mod tidy
@@ -103,6 +112,15 @@ coverage: setup-envtest ## Run unit and integration tests with coverage.
 		./api/... ./cmd/... ./internal/... ./test/integration/...
 	go tool cover -func=cover.out | tail -1
 
+.PHONY: kind-up
+kind-up: ## Create a kind cluster with the manager built and deployed.
+	$(MAKE) docker-build IMG=$(KIND_IMG)
+	IMG=$(KIND_IMG) CONTAINER_ENGINE=$(CONTAINER_ENGINE) \
+		KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash hack/setup-kind.sh
+
+.PHONY: kind-down
+kind-down: ## Delete the kind cluster.
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash hack/teardown-kind.sh
 
 ##@ Build
 
@@ -122,6 +140,24 @@ docker-build: ## Build the manager image.
 docker-push: ## Push the manager image.
 	$(CONTAINER_TOOL) push ${IMG}
 
+##@ Deployment
+
+.PHONY: install
+install: manifests kustomize ## Install the CRDs into the current cluster.
+	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+
+.PHONY: uninstall
+uninstall: manifests kustomize ## Remove the CRDs from the current cluster.
+	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found -f -
+
+.PHONY: deploy
+deploy: manifests kustomize ## Deploy the manager to the current cluster.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
+
+.PHONY: undeploy
+undeploy: kustomize ## Remove the manager from the current cluster.
+	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found -f -
 
 ##@ Dependencies
 
@@ -134,10 +170,14 @@ $(LOCALBIN):
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+SHELLCHECK ?= $(LOCALBIN)/shellcheck
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.23.0
 GOLANGCI_LINT_VERSION ?= v2.15.0
+KUSTOMIZE_VERSION ?= v5.8.1
+SHELLCHECK_VERSION ?= v0.11.0
 # Resolved from go.mod so the envtest tooling cannot drift from the libraries
 # it must match.
 ENVTEST_VERSION ?= $(call gomodver,sigs.k8s.io/controller-runtime)
@@ -147,6 +187,26 @@ define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
 
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Install kustomize.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+# shellcheck ships per-OS/arch tarballs rather than as a Go module, so it
+# cannot use go-install-tool.
+.PHONY: shellcheck
+shellcheck: $(SHELLCHECK) ## Install shellcheck.
+$(SHELLCHECK): $(LOCALBIN)
+	@[ -f "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" ] || { \
+		set -e ;\
+		os="$$(uname -s | tr '[:upper:]' '[:lower:]')" ;\
+		arch="$$(uname -m)"; [ "$$arch" = "arm64" ] && arch=aarch64 ;\
+		echo "Downloading shellcheck $(SHELLCHECK_VERSION) ($$os.$$arch)" ;\
+		curl -sSL "https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).$$os.$$arch.tar.xz" \
+			| tar xJ -C "$(LOCALBIN)" --strip-components=1 "shellcheck-$(SHELLCHECK_VERSION)/shellcheck" ;\
+		mv "$(LOCALBIN)/shellcheck" "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" ;\
+	}
+	@ln -sf "$(SHELLCHECK)-$(SHELLCHECK_VERSION)" "$(SHELLCHECK)"
 
 
 

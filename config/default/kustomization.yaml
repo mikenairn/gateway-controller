@@ -1,0 +1,9 @@
+# Adds a namespace to all resources and prefixes names, so the manager and
+# its RBAC can be installed alongside other controllers.
+namespace: gateway-controller-system
+namePrefix: gateway-controller-
+
+resources:
+  - ../crd
+  - ../rbac
+  - ../manager
