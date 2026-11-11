@@ -210,6 +210,14 @@ spec:
         issuerURL: https://sso.example.com
         audiences:
           - team-alpha
+      - type: APIKey
+        header: X-API-Key
+        keySource:
+          secretRef:
+            name: consumer-keys
+            key: keys.yaml
+        refreshSeconds: 5
+        maxStalenessSeconds: 30    
 ```
 
 The TLS certificate Secret `gateway-tls` and storage connection Secret
