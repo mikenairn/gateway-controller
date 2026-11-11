@@ -1,0 +1,96 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - depguard
+    - dupl
+    - errcheck
+    - errorlint
+    - exhaustive
+    - ginkgolinter
+    - goconst
+    - gocyclo
+    - godox
+    - gosec
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - mnd
+    - modernize
+    - nakedret
+    - nolintlint
+    - prealloc
+    - revive
+    - staticcheck
+    - testifylint
+    - unconvert
+    - unparam
+    - unused
+    - varnamelen
+  settings:
+    errcheck:
+      # Conventions: unused_result_ok - never silently discard an error.
+      check-blank: true
+    exhaustive:
+      # Conventions: wildcard_enum_match_arm - a default arm silently absorbs
+      # new variants, so it does not count as exhaustive.
+      default-signifies-exhaustive: false
+    nolintlint:
+      # Conventions: every suppression carries a reason.
+      require-explanation: true
+      require-specific: true
+    varnamelen:
+      # Conventions: min_ident_chars, with an allowlist for conventional names.
+      min-name-length: 2
+      ignore-names:
+        - c
+        - r
+        - s
+        - t
+    depguard:
+      rules:
+        forbid-sort-pkg:
+          deny:
+            - pkg: sort
+              desc: Should be replaced with slices package
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+    modernize:
+      disable:
+        # The API types use omitzero deliberately; do not churn them.
+        - omitzero
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - lll
+        path: api/*
+      - linters:
+          - dupl
+          - lll
+        path: internal/*
+      # Tests stay explicit: a repeated literal reads better inline than
+      # hoisted to a constant the reader has to go and look up.
+      - linters:
+          - goconst
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

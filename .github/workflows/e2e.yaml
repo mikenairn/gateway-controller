@@ -1,0 +1,63 @@
+name: E2E
+
+# ------------------------------------------------------------------------------
+# Workflow Settings
+# ------------------------------------------------------------------------------
+#
+# Stands up a kind cluster with the manager built and deployed, then runs the
+# e2e suite against it. Separate from tests.yaml because it is the only job
+# that needs a cluster, and the slowest by some margin.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions: {}
+
+jobs:
+  test-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      KIND_VERSION: v0.33.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-$(go env GOARCH)"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Create cluster and deploy the manager
+        run: make kind-up
+
+      - name: E2E tests
+        run: make test-e2e
+
+      - name: Manager logs
+        if: failure()
+        run: |
+          kubectl logs -n gateway-controller-system \
+            -l control-plane=controller-manager --tail=200 || true
+
+      - name: Delete cluster
+        if: always()
+        run: make kind-down
