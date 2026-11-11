@@ -140,10 +140,17 @@ load_images() {
     # archive instead. Podman prefixes local images with localhost/.
     if [ "${KIND_PROVIDER}" = "podman" ]; then
         local archive
+        local save_ref="${IMG}"
         archive="$(mktemp -t gateway-controller-XXXXXX.tar)"
-        # Podman tags local images as localhost/..., so we need to retag for loading
-        "${CONTAINER_ENGINE}" tag "localhost/${IMG}" "docker.io/library/${IMG}" 2>/dev/null || true
-        "${CONTAINER_ENGINE}" save -o "${archive}" "docker.io/library/${IMG}"
+
+        # Normalize unqualified local images. If IMG contains no /, it's a local
+        # image name and should be tagged under docker.io/library for loading.
+        if [[ "${IMG}" != */* ]]; then
+            save_ref="docker.io/library/${IMG}"
+            "${CONTAINER_ENGINE}" tag "localhost/${IMG}" "${save_ref}" 2>/dev/null || true
+        fi
+
+        "${CONTAINER_ENGINE}" save -o "${archive}" "${save_ref}"
         KIND_EXPERIMENTAL_PROVIDER="${KIND_PROVIDER}" ${KIND} load image-archive "${archive}" --name "${CLUSTER_NAME}"
         rm -f "${archive}"
     else

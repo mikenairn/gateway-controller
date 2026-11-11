@@ -222,9 +222,6 @@ endef
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Install kustomize.
 $(KUSTOMIZE): | $(LOCALBIN)
-	@if test -x $@ && ! $@ version | grep -q $(KUSTOMIZE_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
 
 # shellcheck ships per-OS/arch tarballs rather than as a Go module, so it
@@ -232,9 +229,6 @@ $(KUSTOMIZE): | $(LOCALBIN)
 .PHONY: shellcheck
 shellcheck: $(SHELLCHECK) ## Install shellcheck.
 $(SHELLCHECK): | $(LOCALBIN)
-	@if [ -f "$@-$(SHELLCHECK_VERSION)" ] && [ "$$(readlink -- $@ 2>/dev/null)" = "$@-$(SHELLCHECK_VERSION)" ]; then \
-		exit 0; \
-	fi; \
 	rm -f $@*; \
 	set -e ;\
 	os="$$(uname -s | tr '[:upper:]' '[:lower:]')" ;\
@@ -248,26 +242,17 @@ $(SHELLCHECK): | $(LOCALBIN)
 .PHONY: actionlint
 actionlint: $(ACTIONLINT) ## Install actionlint.
 $(ACTIONLINT): | $(LOCALBIN)
-	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(ACTIONLINT_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
 
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Install controller-gen.
 $(CONTROLLER_GEN): | $(LOCALBIN)
-	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(CONTROLLER_TOOLS_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Install golangci-lint.
 $(GOLANGCI_LINT): | $(LOCALBIN)
-	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(GOLANGCI_LINT_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 .PHONY: setup-envtest
@@ -283,17 +268,11 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST.
 .PHONY: envtest
 envtest: $(ENVTEST) ## Install setup-envtest locally if necessary.
 $(ENVTEST): | $(LOCALBIN)
-	@if test -x $@ && ! $@ --version 2>&1 | grep -q $(ENVTEST_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
 
 .PHONY: kind
 kind: $(KIND) ## Install kind locally if necessary.
 $(KIND): | $(LOCALBIN)
-	@if test -x $@ && ! $@ version | grep -q $(KIND_VERSION); then \
-		rm -f $@*; \
-	fi
 	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 # go-install-tool installs $2@$3 as $1-$3 and links $1 to it, so that changing
