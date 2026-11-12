@@ -34,6 +34,22 @@ rules:
   - praxis.io
   resources:
   - policies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - praxis.io
+  resources:
+  - policies/status
+  - proxies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - praxis.io
+  resources:
   - proxies
   verbs:
   - create
@@ -46,16 +62,6 @@ rules:
 - apiGroups:
   - praxis.io
   resources:
-  - policies/finalizers
   - proxies/finalizers
   verbs:
-  - update
-- apiGroups:
-  - praxis.io
-  resources:
-  - policies/status
-  - proxies/status
-  verbs:
-  - get
-  - patch
   - update
